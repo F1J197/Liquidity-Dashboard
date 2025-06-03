@@ -12,11 +12,9 @@ app.use(cors({
     credentials: true // If your frontend needs to send cookies or authorization headers
 }));
 
-// Store your API key securely as an environment variable
-// IMPORTANT: Replace 'YOUR_FALLBACK_KEY_IF_ANY' with a placeholder or remove the fallback 
-// if process.env.FRED_API_KEY is always expected to be set in Vercel.
-const FRED_API_KEY = process.env.FRED_API_KEY || 'baf5a172a9b068e621dd4f80fc13dad2'; // Defaulting to the key you had, ensure it's valid or from env
-const PLACEHOLDER_API_KEY = 'baf5a172a9b068e621dd4f80fc13dad2'; // Define your placeholder key to check against
+// Get the API key from environment variables.
+// IMPORTANT: Ensure FRED_API_KEY is set in your Vercel project's environment variables.
+const FRED_API_KEY = process.env.FRED_API_KEY;
 
 // Cache to reduce API calls
 const cache = new Map();
@@ -39,9 +37,10 @@ app.get('/api/fred/:seriesId', async (req, res) => {
         return res.status(400).json({ error: 'Missing series_id parameter' });
     }
     
-    if (!FRED_API_KEY || FRED_API_KEY === PLACEHOLDER_API_KEY || FRED_API_KEY === 'YOUR_FALLBACK_KEY_IF_ANY') {
-        console.error('[CONFIG ERROR] FRED_API_KEY is not set or is a placeholder on the server.');
-        return res.status(500).json({ error: 'Server configuration error: FRED API Key missing or invalid.' });
+    // Simplified API Key Check: Just check if it's missing/empty.
+    if (!FRED_API_KEY) {
+        console.error('[CONFIG ERROR] FRED_API_KEY is not set on the server. Please configure it in Vercel environment variables.');
+        return res.status(500).json({ error: 'Server configuration error: FRED API Key is missing.' });
     }
     
     const cacheKey = getCacheKey(seriesId, start_date, end_date);
@@ -53,19 +52,15 @@ app.get('/api/fred/:seriesId', async (req, res) => {
     }
     console.log(`[CACHE] Cache miss for "${seriesId}". Fetching from FRED.`);
     
-    // Build FRED API URL
-    // Ensure parameter names match FRED documentation for series/observations: observation_start, observation_end
     let fredURL = `https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(seriesId)}&api_key=${FRED_API_KEY}&file_type=json&sort_order=${encodeURIComponent(sort_order)}`;
     
     if (start_date) fredURL += `&observation_start=${encodeURIComponent(start_date)}`;
     if (end_date) fredURL += `&observation_end=${encodeURIComponent(end_date)}`;
     
-    // ***** THIS IS THE CRUCIAL DEBUGGING LOG *****
     console.log(`[FRED REQUEST URL] Attempting to fetch: ${fredURL}`);
-    // ********************************************
     
     try {
-        const response = await fetch(fredURL); // Global fetch in Node 18+
+        const response = await fetch(fredURL); 
         
         if (!response.ok) {
             const errorText = await response.text(); 
@@ -74,7 +69,7 @@ app.get('/api/fred/:seriesId', async (req, res) => {
             try {
                 errorDetails = JSON.parse(errorText);
             } catch (e) {
-                errorDetails = errorText; // Send raw text if not JSON
+                errorDetails = errorText; 
             }
             return res.status(response.status).json({ 
                 error: `Failed to fetch data from FRED for series ${seriesId}`, 
@@ -100,8 +95,7 @@ app.get('/api/fred/:seriesId', async (req, res) => {
     }
 });
 
-// Endpoint to fetch multiple series at once (for efficiency)
-// Note: Your frontend currently fetches series one by one. This endpoint is available if you refactor frontend.
+// Endpoint to fetch multiple series at once
 app.post('/api/fred/multiple', express.json(), async (req, res) => {
     const { series, start_date, end_date } = req.body;
     console.log(`[BACKEND RECEIVED /api/fred/multiple] Request for series: ${series ? series.join(', ') : '[]'}`);
@@ -110,16 +104,16 @@ app.post('/api/fred/multiple', express.json(), async (req, res) => {
         return res.status(400).json({ error: 'Missing or invalid series array in request body' });
     }
 
-    if (!FRED_API_KEY || FRED_API_KEY === PLACEHOLDER_API_KEY || FRED_API_KEY === 'YOUR_FALLBACK_KEY_IF_ANY') {
-        console.error('[CONFIG ERROR] FRED_API_KEY is not set or is a placeholder on the server.');
-        return res.status(500).json({ error: 'Server configuration error: FRED API Key missing or invalid.' });
+    if (!FRED_API_KEY) {
+        console.error('[CONFIG ERROR] FRED_API_KEY is not set on the server for multiple series request.');
+        return res.status(500).json({ error: 'Server configuration error: FRED API Key missing.' });
     }
     
     try {
         const results = {};
         const promises = series.map(async (seriesIdUntrimmed) => {
-            const seriesId = seriesIdUntrimmed.trim(); // Trim each seriesId
-            if (!seriesId) return; // Skip if empty after trim
+            const seriesId = seriesIdUntrimmed.trim(); 
+            if (!seriesId) return; 
 
             const cacheKey = getCacheKey(seriesId, start_date, end_date);
             const cachedData = cache.get(cacheKey);
@@ -168,20 +162,18 @@ app.post('/api/fred/multiple', express.json(), async (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-    const apiKeyIsPlaceholder = FRED_API_KEY === PLACEHOLDER_API_KEY || FRED_API_KEY === 'YOUR_FALLBACK_KEY_IF_ANY';
-    const apiKeyOkay = !!FRED_API_KEY && !apiKeyIsPlaceholder;
+    const apiKeyOkay = !!FRED_API_KEY; // Simpler check now
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
         cache_size: cache.size,
         api_key_configured_properly: apiKeyOkay,
-        note: apiKeyOkay ? "API Key seems configured." : "WARNING: API Key might be missing or a placeholder!"
+        note: apiKeyOkay ? "API Key is present." : "WARNING: FRED_API_KEY environment variable is not set!"
     });
 });
 
-// Clear cache endpoint (useful for maintenance, consider protecting this)
+// Clear cache endpoint
 app.post('/api/cache/clear', (req, res) => {
-    // Add some basic protection if needed, e.g., a secret key in request body/header
     cache.clear();
     console.log('[CACHE] Cache cleared via API call.');
     res.json({ message: 'Cache cleared successfully', cache_size: cache.size });
@@ -205,13 +197,11 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`FRED proxy server listening at http://localhost:${port}`);
     console.log(`CORS origin: ${process.env.FRONTEND_URL || '*'}`);
-    const apiKeyIsPlaceholder = FRED_API_KEY === PLACEHOLDER_API_KEY || FRED_API_KEY === 'YOUR_FALLBACK_KEY_IF_ANY';
-    const apiKeyOkay = !!FRED_API_KEY && !apiKeyIsPlaceholder;
-    if (!apiKeyOkay) {
-        console.warn('WARNING: FRED_API_KEY is not properly configured. Please set it in your environment variables.');
+    if (!FRED_API_KEY) { // Simpler check at startup
+        console.warn('WARNING: FRED_API_KEY is not configured in environment variables. FRED API calls will fail.');
     } else {
-        console.log('FRED_API_KEY appears to be configured.');
-    }
+        console.log('FRED_API_KEY is present in environment variables.');
+    _}
 });
 
 // Export the app for Vercel serverless functions
