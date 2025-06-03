@@ -201,7 +201,7 @@ app.listen(port, () => {
         console.warn('WARNING: FRED_API_KEY is not configured in environment variables. FRED API calls will fail.');
     } else {
         console.log('FRED_API_KEY is present in environment variables.');
-    _}
+    }
 });
 
 // Export the app for Vercel serverless functions
